@@ -1,0 +1,222 @@
+/*
+* EN683 VDMA — Architecture Diagram (Graphviz DOT)
+*
+* Target layout (3 clean horizontal stripes):
+*   ┌──────────────────────────────────┐
+*   │           User Space             │
+*   └──────────────────────────────────┘
+*   ┌──────────────────────────────────┐
+*   │ Kernel Space                     │
+*   │  ┌──────────────┐ ┌─────────────┐│
+*   │  │    CORE      │ │ DRV Modules ││
+*   │  └──────────────┘ └─────────────┘│
+*   └──────────────────────────────────┘
+*   ┌──────────────────────────────────┐
+*   │         HW (EN683 SoC)           │
+*   └──────────────────────────────────┘
+*
+* Render:
+*   dot -Tpng architecture.dot -o architecture.png
+*   dot -Tsvg architecture.dot -o architecture.svg
+*/
+
+digraph EN683_VDMA {
+	rankdir=TB;
+	compound=true;          /* allow lhead/ltail = cluster */
+	newrank=true;
+	nodesep=0.4;
+	ranksep=0.7;
+	splines=spline;
+	fontname="Helvetica";
+	node  [fontname="Helvetica", fontsize=10, style=filled];
+	edge  [fontname="Helvetica", fontsize=10];
+
+	/* ============================================================
+	* 1. USER SPACE  (top stripe)
+	* ============================================================ */
+	subgraph cluster_user {
+		label=<<b>User Space</b>>;
+		labelloc="t";
+		style="rounded,filled";
+		fillcolor="#e8f5e9";
+		color="#2e7d32";
+
+		app_font	[label="font app",		shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_scaler0	[label="scaler app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_scaler1	[label="scaler app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_jenc	[label="jpegenc app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_jdec	[label="jpegdec app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+
+		lib [
+			label=<<BR/><B>libenxmedialink.so / libenxmedialink.a</B><BR ALIGN="CENTER"/>
+				<I>Functions-type singleton</I><BR/><BR ALIGN="CENTER"/>
+				- open / close<BR ALIGN="CENTER"/>
+				- execution<BR ALIGN="CENTER"/>
+				- buffer alloc / free<BR ALIGN="CENTER"/>
+				- buffer export / import<BR ALIGN="CENTER"/>>,
+			shape=box3d,
+			fillcolor="#c8e6c9"
+		];
+
+
+
+		app_font	-> lib;
+		app_scaler0	-> lib;
+		app_scaler1	-> lib;
+		app_jenc	-> lib;
+		app_jdec	-> lib;
+
+		/* Apps on the same rank above lib */
+		{ rank=same; app_font; app_scaler0; app_scaler1; app_jenc; app_jdec; }
+	}
+
+	/* ============================================================
+	* 2. KERNEL SPACE  (middle stripe — device right, Core left)
+	* ============================================================ */
+	subgraph cluster_kernel {
+		label=<<b>Kernel Space</b>>;
+		labelloc="t";
+		style="rounded,filled";
+		fillcolor="#f5f5f5";
+		color="#666666";
+
+		/* ── device (right half, single horizontal row) ── */
+		subgraph cluster_device {
+			label = "Drv Modules";
+			labelloc = "t";
+			style = "rounded,filled";
+			fillcolor = "#fff4e6";
+			color = "#cc6600";
+
+			// node - common style & boxcolor
+			node [shape=box, style="filled,rounded", fillcolor="#ffffff"];
+
+			dma_font [
+				label = "enx_vdma-font.ko\n/dev/enx_vdma_font"
+			];
+			dma_dz0 [
+				label = "enx_vdma-dz.ko ch0\n/dev/enx_vdma_dz0"
+			];
+			dma_dz1 [
+				label = "enx_vdma-dz.ko ch1\n/dev/enx_vdma_dz1"
+			];
+			dma_jenc [
+				label = "enx_vdma-jenc.ko\n/dev/enx_vdma_jenc"
+			];
+			dma_jdec [
+				label = "enx_vdma-jdec.ko\n/dev/enx_vdma_jdec"
+			];
+
+			{ rank=same; dma_font; dma_dz0; dma_dz1; dma_jenc; dma_jdec; }
+		}
+
+
+		/* ── Core (left half, single HTML-table node) ── */
+		subgraph cluster_core {
+			label=<<b>enx_vdma.ko — CORE</b>>;
+			labelloc="t";
+			style="rounded,filled";
+			fillcolor="#e1f5ff";
+			color="#0066cc";
+
+			core [
+				shape=plain,
+				label=<
+				<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="3" CELLPADDING="6">
+					<TR>
+					<TD BGCOLOR="#ffffff">
+						<B>Common ioctls</B><BR/>
+						ALLOC · FREE · MMAP<BR/>
+						EXPORT · IMPORT<BR/>
+						WAIT · ABORT
+					</TD>
+					<TD BGCOLOR="#ffffff">
+						<B>SUBMIT dispatcher</B><BR ALIGN="CENTER"/>
+						SYNC  - inline<BR ALIGN="CENTER"/>
+						ASYNC - workqueue<BR ALIGN="CENTER"/>
+					</TD>
+					<TD ROWSPAN="2" PORT="ops" BGCOLOR="#fff9c4" VALIGN="MIDDLE">
+						<B>EXPORT_SYMBOL_GPL<BR/>boundary</B><BR/>
+						<BR/>
+						enx_vdma_submit<BR ALIGN="CENTER"/>
+						enx_vdma_abort<BR ALIGN="CENTER"/>
+						enx_vdma_open/release<BR ALIGN="CENTER"/>
+						enx_vdma_mmap/poll<BR ALIGN="CENTER"/>
+						ioctl helpers<BR ALIGN="CENTER"/>
+						core_register<BR ALIGN="CENTER"/>
+					</TD>
+					</TR>
+					<TR>
+					<TD BGCOLOR="#ffffff">
+						<B>Memory model</B><BR/>
+						backing + buf<BR/>
+						(kref'd)<BR/>
+						cross-device share
+					</TD>
+					<TD BGCOLOR="#ffffff">
+						<B>debugfs</B><BR/>
+						stats · bufs<BR/>
+						jobs · sessions
+					</TD>
+					</TR>
+				</TABLE>
+				>
+			];
+		}
+
+		/* device와 core를 같은 위치 (한 줄 5+1 = 6 노드) */
+		{ rank=same; dma_font; dma_dz0; dma_dz1; dma_jenc; dma_jdec; core; }
+
+		core:ops -> dma_font [
+			style=dashed,
+			arrowhead=odot,
+			label="core_register\n& ops",
+			ltail=cluster_core,
+			constraint=false
+		];
+	}
+
+	/* ============================================================
+	* 3. HW  (bottom stripe — 5 engines column-aligned with device)
+	* ============================================================ */
+	subgraph cluster_hw {
+		label=<<b>HW (EN683 SoC)</b>>;
+		labelloc="t";
+		style="rounded,filled";
+		fillcolor="#fafafa";
+		color="#999999";
+
+		hw_font [label="FONT engine",	shape=cylinder, fillcolor="#eeeeee"];
+		hw_dz0  [label="DZ ch0",		shape=cylinder, fillcolor="#eeeeee"];
+		hw_dz1  [label="DZ ch1",		shape=cylinder, fillcolor="#eeeeee"];
+		hw_jenc [label="JPEG enc",		shape=cylinder, fillcolor="#eeeeee"];
+		hw_jdec [label="JPEG dec",		shape=cylinder, fillcolor="#eeeeee"];
+
+		{ rank=same; hw_font; hw_dz0; hw_dz1; hw_jenc; hw_jdec; }
+	}
+
+	/* ============================================================
+	* EDGES — vertical, column-aligned (no crossings)
+	* ============================================================ */
+
+	/* lib → device : 가시 edge. constraint=true (기본) 로 vertical stacking
+	* 강제. lhead=cluster_device 로 device cluster 자체에 attach.
+	* dma_dz1 은 device cluster 의 declaration 상 중앙 (column 3).
+	* apps 는 width=1.2 fixedsize → 균일 간격 → 중앙 app (app_jenc) 와
+	* dma_dz1 가 같은 x 위치로 정렬됨 → lib (apps median 위치) = lib 중앙. */
+	lib -> dma_dz1 [
+		color="#1976d2", penwidth=2.0,
+		label="ioctl / mmap\nvia /dev",
+		lhead=cluster_device,
+		weight=10
+	];
+
+
+	/* device → HW : column-aligned, 1:1 (vertical, no crossing) */
+	dma_font -> hw_font [color="#666666"];
+	dma_dz0  -> hw_dz0  [color="#666666"];
+	dma_dz1  -> hw_dz1  [color="#666666"];
+	dma_jenc -> hw_jenc [color="#666666"];
+	dma_jdec -> hw_jdec [color="#666666"];
+
+}

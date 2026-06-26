@@ -1,0 +1,14 @@
+prefix=/disk/vol1/yjlee/work/EN683/vdma_temp_developing/VDMA_260625/userapp/lib/font_test/freetype/../libs
+exec_prefix=/disk/vol1/yjlee/work/EN683/vdma_temp_developing/VDMA_260625/userapp/lib/font_test/freetype/../libs
+libdir=/disk/vol1/yjlee/work/EN683/vdma_temp_developing/VDMA_260625/userapp/lib/font_test/freetype/../libs/lib
+includedir=/disk/vol1/yjlee/work/EN683/vdma_temp_developing/VDMA_260625/userapp/lib/font_test/freetype/../libs/include
+
+Name: FreeType 2
+URL: https://freetype.org
+Description: A free, high-quality, and portable font engine.
+Version: 26.6.20
+Requires: 
+Requires.private: 
+Libs: -L/disk/vol1/yjlee/work/EN683/vdma_temp_developing/VDMA_260625/userapp/lib/font_test/freetype/../libs/lib -lfreetype
+Libs.private: 
+Cflags: -I${includedir}/freetype2

@@ -1,0 +1,128 @@
+/*
+ * EN683 VDMA — EXPORT/IMPORT Cross-process Buffer Sharing Flow
+ *
+ * Render:
+ *   dot -Tpng export-import-flow.dot -o export-import-flow.png
+ *   dot -Tsvg export-import-flow.dot -o export-import-flow.svg
+ *
+ * Producer (Process A) 가 buf 를 alloc / export → SCM_RIGHTS 로 fd 전달 →
+ * Consumer (Process B) 가 import. backing 의 kref 가 양쪽 view + anon_fd 의
+ * holder 합으로 보호됨.
+ */
+
+digraph EXPORT_IMPORT_FLOW {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled"];
+    edge [fontname="Helvetica", fontsize=9];
+    compound=true;
+
+    /* ============================================================
+     * Producer side (left)
+     * ============================================================ */
+    subgraph cluster_producer {
+        label=<<b>Producer (Process A)</b>>;
+        style="rounded,filled";
+        fillcolor="#e3f2fd";
+        color="#1565c0";
+
+        p_app    [label=<App<br/>User Code>, fillcolor="#bbdefb"];
+        p_lib    [label=<Lib<br/>(enx_vdma.so)>, fillcolor="#90caf9"];
+        p_buf    [label=<<b>buf_A</b><br/>id=42, kref=2<br/>(owner+vma)>, fillcolor="#ffffff"];
+    }
+
+    /* ============================================================
+     * Kernel (center)
+     * ============================================================ */
+    subgraph cluster_kernel {
+        label=<<b>Kernel</b>>;
+        style="rounded,filled";
+        fillcolor="#fff9c4";
+        color="#f57f17";
+
+        k_alloc    [label=<<b>VDMAIOSET_ALLOC</b><br/>backing(kref=1)<br/>+ buf_A(kref=1)>, fillcolor="#fff59d"];
+        k_export   [label=<<b>VDMAIOSET_EXPORT</b><br/>anon_inode_getfd<br/>backing.kref++>, fillcolor="#fff59d"];
+        k_import   [label=<<b>VDMAIOGET_IMPORT</b><br/>per-session dedup check<br/>backing.kref++>, fillcolor="#fff59d"];
+
+        k_backing  [label=<<b>backing</b><br/>cmm (ecmm region)<br/>kref = sum(views + anon_fd)>,
+                    shape=cylinder, fillcolor="#ffeb3b"];
+        k_anonfd   [label=<<b>anon_inode fd</b><br/>(holds backing.kref)>, fillcolor="#ffe082"];
+    }
+
+    /* ============================================================
+     * Consumer side (right)
+     * ============================================================ */
+    subgraph cluster_consumer {
+        label=<<b>Consumer (Process B)</b>>;
+        style="rounded,filled";
+        fillcolor="#e8f5e9";
+        color="#2e7d32";
+
+        c_app    [label=<App<br/>User Code>, fillcolor="#c8e6c9"];
+        c_lib    [label=<Lib<br/>(enx_vdma.so)>, fillcolor="#a5d6a7"];
+        c_buf    [label=<<b>buf_B</b><br/>id=99, kref=2<br/>imported=true<br/>(owner+vma)>, fillcolor="#ffffff"];
+    }
+
+    /* ============================================================
+     * Flow edges (numbered to show order)
+     * ============================================================ */
+
+    /* Producer alloc + mmap */
+    p_app    -> p_lib    [label="(1) Buffer_Alloc(SRC, size)", color="#1565c0"];
+    p_lib    -> k_alloc  [label="(2) ioctl ALLOC", color="#1565c0"];
+    k_alloc  -> k_backing [label="(3) create", color="#1565c0", style=dashed];
+    k_alloc  -> p_buf    [label="(4) id=42, mmap", color="#1565c0", style=dashed];
+
+    /* Producer EXPORT */
+    p_app    -> p_lib    [label="(5) vdma_export(pvirt_A)", color="#1565c0"];
+    p_lib    -> k_export [label="(6) ioctl EXPORT", color="#1565c0"];
+    k_export -> k_anonfd [label="(7) create anon_fd", color="#1565c0", style=dashed];
+    k_anonfd -> k_backing [label="kref+1", color="#f57f17", style=dotted, arrowhead=odot];
+
+    /* SCM_RIGHTS transfer (cross-process) */
+    p_app    -> c_app    [label=<<b>(8) SCM_RIGHTS</b><br/>(UNIX socket)<br/>export_fd 전달>,
+                          color="#c62828", penwidth=2, style=bold,
+                          fontcolor="#c62828"];
+
+    /* Consumer IMPORT */
+    c_app    -> c_lib    [label="(9) vdma_import(fd, KIND)", color="#2e7d32"];
+    c_lib    -> k_import [label="(10) ioctl IMPORT", color="#2e7d32"];
+    k_import -> c_buf    [label="(11) new view\nid=99 (or -EEXIST if dedup)", color="#2e7d32", style=dashed];
+
+    /* buf views point to same backing */
+    p_buf    -> k_backing [label="backing ref", color="#1565c0", style=dotted, arrowhead=odot, constraint=false];
+    c_buf    -> k_backing [label="backing ref\n(shared)", color="#2e7d32", style=dotted, arrowhead=odot, constraint=false];
+
+    /* ============================================================
+     * Legend
+     * ============================================================ */
+    subgraph cluster_legend {
+        label=<<b>Legend</b>>;
+        style="rounded,filled";
+        fillcolor="#fafafa";
+        color="#9e9e9e";
+        rank=sink;
+
+        L1 [label=<solid → ioctl call>, shape=plaintext, fillcolor=transparent];
+        L2 [label=<dashed → kernel-internal>, shape=plaintext, fillcolor=transparent];
+        L3 [label=<dotted → kref holder>, shape=plaintext, fillcolor=transparent];
+        L4 [label=<<font color="#c62828"><b>bold red</b></font> → cross-process fd transfer>,
+            shape=plaintext, fillcolor=transparent];
+
+        L1 -> L2 -> L3 -> L4 [style=invis];
+    }
+
+    /* ============================================================
+     * Notes
+     * ============================================================ */
+    note [
+        label=<<b>Key Mechanisms:</b><br/>
+               • <b>SCM_RIGHTS</b> : UNIX socket 으로 fd 전송 → 받는 process 의 fd table 매핑 <br align="left"/>
+               • <b>anon_inode</b> : EXPORT 가 만든 fd 의 private_data = backing ; fd close 시 backing kref-1 <br align="left"/>
+               • <b>per-session dedup</b> : 같은 backing 재 IMPORT 시 -EEXIST + 기존 view 의 id 반환 (idempotent) <br align="left"/>
+               • <b>backing kref</b> : 모든 view + anon_fd 가 0 일 때만 ecmm_free <br align="left"/>>,
+        shape=note,
+        fillcolor="#fff3e0",
+        color="#ef6c00"
+    ];
+}

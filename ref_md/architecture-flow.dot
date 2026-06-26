@@ -1,0 +1,110 @@
+/*
+ * EN683 VDMA — Cross-device pipeline / EXPORT-IMPORT flow
+ *
+ * Mermaid 의 ARCHITECTURE.md §4 와 동일 구조 :
+ *   3 device clusters (font / dz0 / jenc) — 각각 session (ellipse) + buf(s)
+ *   Backing Pool cluster — bk1 (shared by 3), bk2 (single)
+ *   "owns" 점선 : session → buf
+ *   "shared backing" / "backing" 점선 : buf → bk
+ *
+ * Render:
+ *   dot -Tpng architecture-flow.dot -o architecture-flow.png
+ *   dot -Tsvg architecture-flow.dot -o architecture-flow.svg
+ */
+
+digraph EN683_VDMA_FLOW {
+    rankdir=LR;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=10, style=filled, shape=box];
+    edge [fontname="Helvetica", fontsize=9];
+
+    /* ============================================================
+     * Per-dev buf_xa entries (views)
+     *   Session 은 fd-당-1개. 같은 process 라도 device 마다 별도 session.
+     *   예시 : Proc A 가 font/dz0 두 fd 열고, Proc B 가 jenc fd 1개 열음
+     *          → 총 3 session.
+     * ============================================================ */
+    subgraph cluster_font {
+        label=<<b>font dev — buf_xa</b>>;
+        style="rounded,filled";
+        fillcolor="#e1f5ff";
+        color="#0066cc";
+
+        sess_fa   [label=<<b>font_sess_A</b><br/>(Proc A's font fd)>,
+                   shape=ellipse, fillcolor="#bbdefb"];
+        buf_f_dst [label=<<b>buf #5 (DST)</b><br/>backing=BK1<br/>owner=font_sess_A>,
+                   fillcolor="#ffffff"];
+        sess_fa -> buf_f_dst [style=dashed, label="owns", arrowhead=odot, color="#1565c0"];
+    }
+
+    subgraph cluster_dz {
+        label=<<b>dz0 dev — buf_xa</b>>;
+        style="rounded,filled";
+        fillcolor="#f3e5f5";
+        color="#7b1fa2";
+
+        sess_da    [label=<<b>dz_sess_A</b><br/>(Proc A's dz0 fd)>,
+                    shape=ellipse, fillcolor="#e1bee7"];
+        buf_dz_src [label=<<b>buf #12 (SRC)</b><br/>backing=BK1<br/>owner=dz_sess_A>,
+                    fillcolor="#ffffff"];
+        sess_da -> buf_dz_src [style=dashed, label="owns", arrowhead=odot, color="#7b1fa2"];
+    }
+
+    subgraph cluster_jenc {
+        label=<<b>jenc dev — buf_xa</b>>;
+        style="rounded,filled";
+        fillcolor="#e8f5e9";
+        color="#2e7d32";
+
+        sess_jb    [label=<<b>jenc_sess_B</b><br/>(Proc B's jenc fd)>,
+                    shape=ellipse, fillcolor="#c8e6c9"];
+        buf_je_src [label=<<b>buf #3 (SRC, imported)</b><br/>backing=BK1<br/>owner=jenc_sess_B>,
+                    fillcolor="#ffffff"];
+        buf_je_dst [label=<<b>buf #7 (DST)</b><br/>backing=BK2<br/>owner=jenc_sess_B>,
+                    fillcolor="#ffffff"];
+        sess_jb -> buf_je_src [style=dashed, label="owns", arrowhead=odot, color="#2e7d32"];
+        sess_jb -> buf_je_dst [style=dashed, label="owns", arrowhead=odot, color="#2e7d32"];
+    }
+
+    /* ============================================================
+     * Memory backings (kref'd shared physical memory)
+     *   rankdir=LR 에서 bufs 의 우측에 자리잡음.
+     * ============================================================ */
+    subgraph cluster_backings {
+        label=<<b>Backing Pool</b><br/>(physical memory, kref-protected)>;
+        style="rounded,filled";
+        fillcolor="#fff9c4";
+        color="#f57f17";
+
+        bk1 [label=<<b>backing #1</b><br/>ecmm 4 MB<br/>kref=3 (shared)>, fillcolor="#fff59d"];
+        bk2 [label=<<b>backing #2</b><br/>ecmm 1 MB<br/>kref=1>,        fillcolor="#fff59d"];
+    }
+
+    /* ============================================================
+     * Backing share relationships
+     *   BK1 = shared backing (3 views) · BK2 = single owner
+     * ============================================================ */
+    buf_f_dst   -> bk1 [style=dashed, label="shared backing"];
+    buf_dz_src  -> bk1 [style=dashed, label="shared backing"];
+    buf_je_src  -> bk1 [style=dashed, label="shared backing"];
+    buf_je_dst  -> bk2 [label="backing"];
+
+    /* ============================================================
+     * Notes
+     * ============================================================ */
+    note [
+        label=<<b>Read this diagram:</b><br/>
+               • Session 은 <b>fd-당-1개</b>. 한 process 가 N device 열면 <br align="left"/>
+                 N session (각각 다른 dev 의 <i>sessions</i> 리스트에). <br align="left"/>
+               • Proc A : font_sess_A + dz_sess_A (두 fd 열음). <br align="left"/>
+                 Proc B : jenc_sess_B (한 fd 만 열음). <br align="left"/>
+               • bk1 has 3 views — cross-device 공유. <br align="left"/>
+                 (font.DST · dz0.SRC · jenc.SRC) <br align="left"/>
+               • 각 view 는 자기 dev 의 id 공간 사용 ; backing 포인터는 공유. <br align="left"/>
+               • EXPORT in font/dz produced the anon_inode fd <br align="left"/>
+                 that jenc consumed via IMPORT. <br align="left"/>>,
+        shape=note,
+        fillcolor="#fff3e0",
+        color="#ef6c00"
+    ];
+}

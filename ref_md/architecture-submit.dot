@@ -1,0 +1,112 @@
+/*
+ * EN683 VDMA — SUBMIT path: SYNC inline vs ASYNC workqueue
+ *
+ * Render:
+ *   dot -Tpng architecture-submit.dot -o architecture-submit.png
+ *   dot -Tsvg architecture-submit.dot -o architecture-submit.svg
+ */
+
+digraph EN683_VDMA_SUBMIT {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=10, style=filled, shape=box];
+    edge [fontname="Helvetica", fontsize=9];
+
+    /* Entry */
+    user [
+        label="user-space\nioctl(VDMAIOSET_*_SUBMIT, &args)",
+        shape=oval,
+        fillcolor="#c8e6c9"
+    ];
+
+    dispatcher [
+        label="enx_vdma_submit (dispatcher)\ncommon validation:\nsrc_count · blits ptr · blit_size",
+        fillcolor="#fff9c4"
+    ];
+
+    user -> dispatcher [label="device ioctl handler\ncalls enx_vdma_submit"];
+
+    /* ───────────── SYNC path ───────────── */
+    subgraph cluster_sync {
+        label=<<b>SYNC inline path</b>>;
+        labelloc="t";
+        style="rounded,filled";
+        fillcolor="#e8f5e9";
+        color="#2e7d32";
+
+        sync_alloc [label="kzalloc(job)\nflags = SYNC\nblits = p->blits (직접 reuse)", fillcolor="#ffffff"];
+        sync_fill  [label="fill_job_buf × N\n(buf ref 획득)",                            fillcolor="#ffffff"];
+        sync_lock  [label="mutex_lock_killable\n(&dev->hw_lock)",                        fillcolor="#fff3e0"];
+        sync_run   [label="ops->hw_run_once()\nHW programming\n(IRQ wait 포함)",  fillcolor="#bbdefb"];
+        sync_unlock[label="mutex_unlock\n(&dev->hw_lock)",                               fillcolor="#fff3e0"];
+        sync_cleanup[label="drop_buf_refs\nkfree(job)",                                  fillcolor="#ffffff"];
+
+        sync_alloc -> sync_fill -> sync_lock -> sync_run -> sync_unlock -> sync_cleanup;
+    }
+
+    /* ───────────── ASYNC path ───────────── */
+    subgraph cluster_async {
+        label=<<b>ASYNC workqueue path</b>>;
+        labelloc="t";
+        style="rounded,filled";
+        fillcolor="#fff4e6";
+        color="#cc6600";
+
+        async_alloc [label="kzalloc(job)\ninit_waitqueue\nINIT_WORK\nflags = ASYNC",   fillcolor="#ffffff"];
+        async_kmemdup [label="kmemdup(p->blits)\n(kernel-owned 복제)",                fillcolor="#ffffff"];
+        async_fill  [label="fill_job_buf × N\n(buf ref 획득)",                         fillcolor="#ffffff"];
+        async_xa    [label="xa_alloc(job_id)\nlist_add(vs->jobs)",                     fillcolor="#ffffff"];
+        async_queue [label="queue_work(dev->wq)\njob_id 반환 후\n즉시 return",       fillcolor="#bbdefb"];
+
+        async_alloc -> async_kmemdup -> async_fill -> async_xa -> async_queue;
+
+        /* Worker thread side */
+        worker [
+            label="vdma_job_worker (kthread)\n─────────────────\nmutex_lock(hw_lock)\nops->hw_run_once()\nmutex_unlock\nvdma_job_finish:\n  drop_buf_refs\n  job->done = true\n  wake_up_all (waiters)\n  wake_up_interruptible (poll)",
+            fillcolor="#fff59d"
+        ];
+
+        async_queue -> worker [style=dashed, label="ordered_workqueue\npicks up"];
+
+        wait_ioctl [
+            label="vdma_do_wait (user thread)\nwait_event_interruptible_timeout\nxa_cmpxchg(job)\ncopy result to user",
+            fillcolor="#e1bee7"
+        ];
+
+        worker -> wait_ioctl [style=dashed, label="wake_up"];
+
+        poll_ioctl [
+            label="enx_vdma_poll (epoll)\npoll_wait(poll_wq)\nlist_for_each: check done",
+            fillcolor="#e1bee7"
+        ];
+
+        worker -> poll_ioctl [style=dashed, label="wake_up_interruptible"];
+    }
+
+    /* Dispatcher → branch */
+    dispatcher -> sync_alloc  [label="ENX_SUBMIT_SYNC",  color="#2e7d32", penwidth=2];
+    dispatcher -> async_alloc [label="ENX_SUBMIT_ASYNC", color="#cc6600", penwidth=2];
+
+    /* Return paths */
+    sync_cleanup -> ret_sync [arrowhead=none];
+    ret_sync [
+        label="user 받음:\nreturn 0 / -errno",
+        shape=oval,
+        fillcolor="#c8e6c9"
+    ];
+
+    async_queue -> ret_async [arrowhead=none];
+    ret_async [
+        label="user 받음:\nreturn job_id_out",
+        shape=oval,
+        fillcolor="#c8e6c9"
+    ];
+
+    /* Comparison note */
+    note [
+        label="── 차이 요약 ──\l\lSYNC : workqueue 우회. ioctl thread 가\l       hw_run_once 직접 실행.\l       컨텍스트 스위치 절약.\l\lASYNC: worker 가 HW 작업.\l       ioctl 즉시 return.\l       후속 WAIT/poll 로 완료 통지.\l\l두 경로 모두 hw_lock 으로 직렬화 —\lHW 는 동시에 한 job 만 실행.\l",
+        shape=note,
+        fillcolor="#fff3e0",
+        color="#ef6c00"
+    ];
+}

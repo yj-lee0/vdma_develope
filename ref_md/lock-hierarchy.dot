@@ -1,0 +1,142 @@
+/*
+ * EN683 VDMA — Lock Hierarchy & Acquisition Order
+ *
+ * Render:
+ *   dot -Tpng lock-hierarchy.dot -o lock-hierarchy.png
+ *   dot -Tsvg lock-hierarchy.dot -o lock-hierarchy.svg
+ *
+ * Mutex layer (sessions_lock 가 outermost) + Spinlock layer (sleep 불가).
+ * 실선 = 허용된 획득 순서, 점선 = 금지 (deadlock 또는 sleep-in-atomic).
+ *
+ * NOTE: Graphviz HTML 라벨 안에서 -&gt; 같은 표현은 &amp;gt; 로 escape.
+ *       (예: dev->sessions_lock 표기는 라벨 안에서는 dev.sessions_lock 으로 표현)
+ */
+
+digraph LOCK_HIERARCHY {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=10, style="rounded,filled"];
+    edge [fontname="Helvetica", fontsize=9];
+    compound=true;
+
+    /* ============================================================
+     * Mutex layer
+     * ============================================================ */
+    subgraph cluster_mutex {
+        label=<<b>Mutex layer</b><br/>(sleep 가능)>;
+        style="rounded,filled";
+        fillcolor="#fce4ec";
+        color="#c2185b";
+        labeljust=l;
+
+        sessions_lock [label=<<b>dev.sessions_lock</b><br/>mutex<br/><i>outermost</i><br/>protects: dev.sessions list>,
+                       fillcolor="#ffcdd2", color="#b71c1c", penwidth=2];
+        vs_lock       [label=<<b>vs.lock</b><br/>mutex<br/><i>per-session inner</i><br/>protects: vs.bufs / vs.jobs>,
+                       fillcolor="#c8e6c9", color="#1b5e20"];
+        hw_lock       [label=<<b>dev.hw_lock</b><br/>mutex<br/><i>독립 (HW reg seq)</i><br/>worker thread only>,
+                       fillcolor="#fff59d", color="#f57f17"];
+    }
+
+    /* ============================================================
+     * Spinlock layer
+     * ============================================================ */
+    subgraph cluster_spin {
+        label=<<b>Spinlock layer</b><br/>(sleep 불가)>;
+        style="rounded,filled";
+        fillcolor="#e3f2fd";
+        color="#1565c0";
+        labeljust=l;
+
+        xa_buf   [label=<<b>xa_lock(buf_xa)</b><br/>spinlock<br/><i>xarray entry atomic</i>>,
+                  fillcolor="#bbdefb", color="#1565c0"];
+        xa_job   [label=<<b>xa_lock(job_xa)</b><br/>spinlock<br/><i>xarray entry atomic</i>>,
+                  fillcolor="#bbdefb", color="#1565c0"];
+        irq_lock [label=<<b>dev.irq_lock</b><br/>spinlock<br/><i>ISR / proc ctx</i><br/>hw_idle / driver counters>,
+                  fillcolor="#90caf9", color="#0d47a1", penwidth=2];
+        drv_lock [label=<<b>driver fds.lock</b><br/>spinlock<br/><i>per-driver state</i><br/>e.g. font active_mode>,
+                  fillcolor="#ce93d8", color="#6a1b9a"];
+    }
+
+    /* ============================================================
+     * Allowed acquisition (solid arrows) — from outer to inner
+     * ============================================================ */
+    sessions_lock -> vs_lock     [label="OK (outer to inner)", color="#2e7d32", penwidth=2];
+    vs_lock       -> xa_buf      [label="OK", color="#2e7d32"];
+    vs_lock       -> xa_job      [label="OK", color="#2e7d32"];
+    sessions_lock -> xa_buf      [label="OK", color="#2e7d32"];
+
+    /* ============================================================
+     * Forbidden patterns (dashed red)
+     * ============================================================ */
+    vs_lock       -> sessions_lock [label="❌ reverse (AB-BA deadlock)",
+                                    color="#c62828", style=dashed, penwidth=1.5, constraint=false];
+    irq_lock      -> sessions_lock [label="❌ sleep in atomic",
+                                    color="#c62828", style=dashed, constraint=false];
+    irq_lock      -> vs_lock       [label="❌ sleep in atomic",
+                                    color="#c62828", style=dashed, constraint=false];
+    irq_lock      -> hw_lock       [label="❌ sleep in atomic",
+                                    color="#c62828", style=dashed, constraint=false];
+    xa_buf        -> sessions_lock [label="❌ sleep in atomic",
+                                    color="#c62828", style=dashed, constraint=false];
+    xa_buf        -> vs_lock       [label="❌ sleep in atomic",
+                                    color="#c62828", style=dashed, constraint=false];
+
+    /* ============================================================
+     * Common violations & symptoms
+     * ============================================================ */
+    violations [
+        label=<<b>Common Violations and Symptoms:</b><br/>
+               <b>1. AB-BA Deadlock</b><br/>
+                  Two threads acquire mutexes in opposite order <br align="left"/>
+                  =&gt; Both wait forever (lockdep catches at boot) <br align="left"/><br/>
+               <b>2. Sleep in Atomic Context</b><br/>
+                  BUG: sleeping function called from invalid context <br align="left"/>
+                  =&gt; Caused by GFP_KERNEL / mutex inside spinlock <br align="left"/><br/>
+               <b>3. IRQ-safe Lock Missing</b><br/>
+                  ISR spinning on lock held by process ctx =&gt; CPU lockup <br align="left"/>
+                  =&gt; Use spin_lock_irqsave in process ctx <br align="left"/><br/>
+               <b>4. Lock Held Too Long</b><br/>
+                  Latency spike, throughput drops <br align="left"/>
+                  =&gt; hw_lock 만 intentionally long; 다른 lock 은 가능한 짧게 <br align="left"/>>,
+        shape=note,
+        fillcolor="#fff3e0",
+        color="#ef6c00",
+        fontsize=9
+    ];
+
+    /* ============================================================
+     * Recommendations
+     * ============================================================ */
+    rules [
+        label=<<b>Acquisition Rules:</b><br/>
+               • sessions_lock 안에서 vs.lock OK (debugfs walk 패턴) <br align="left"/>
+               • vs.lock 안에서 xa_lock OK <br align="left"/>
+               • hw_lock 은 다른 mutex 와 무관 (worker 가 단독 사용) <br align="left"/>
+               • spinlock 안에서 GFP_KERNEL / mutex / sleep 절대 금지 <br align="left"/>
+               • ISR 가 잡을 spinlock 은 process 측에서 spin_lock_irqsave <br align="left"/>
+               • driver 의 lock 은 driver 내부에서만 (core lock 잡지 말 것) <br align="left"/>
+               • CONFIG_PROVE_LOCKING=y 로 빌드해서 lockdep 검증 권장 <br align="left"/>>,
+        shape=note,
+        fillcolor="#e8f5e9",
+        color="#2e7d32",
+        fontsize=9
+    ];
+
+    /* ============================================================
+     * Legend
+     * ============================================================ */
+    subgraph cluster_legend {
+        label=<<b>Legend</b>>;
+        style="rounded,filled";
+        fillcolor="#fafafa";
+        color="#9e9e9e";
+
+        L1 [label=<<b>red border</b><br/>outermost / critical>, shape=plaintext, fillcolor=transparent];
+        L2 [label=<<font color="#2e7d32"><b>solid green</b></font> = OK ordering>,
+            shape=plaintext, fillcolor=transparent];
+        L3 [label=<<font color="#c62828"><b>dashed red</b></font> = FORBIDDEN>,
+            shape=plaintext, fillcolor=transparent];
+
+        L1 -> L2 -> L3 [style=invis];
+    }
+}

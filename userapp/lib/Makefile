@@ -9,6 +9,8 @@ AR		= $(CROSS_COMPILE)ar
 PREFIX		?= /usr/local
 LIBDIR		?= $(PREFIX)/lib
 INCDIR		?= $(PREFIX)/include
+BINDIR		?= $(PREFIX)/bin
+DESTDIR		?= ~/work/share/en683/vdma/new/vdma_demo
 
 # ─────────────────────────────────────────────────────────────────────────
 # Compile flags
@@ -32,6 +34,8 @@ FREETYPE_DIR	?= font_test/libs
 FT_CFLAGS	?= -I$(FREETYPE_DIR)/include/freetype2
 FT_LIBS		?= -L$(FREETYPE_DIR)/lib -lfreetype
 
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Targets
 # ─────────────────────────────────────────────────────────────────────────
@@ -44,36 +48,33 @@ LIB_OBJ		= enx_vdma.o
 LIB_OBJ_PIC	= enx_vdma.pic.o
 LIB_HDR		= enx_vdma.h
 
-DEMO_BIN	= demo/enx_vdma_demo
-DEMO_SRC	= demo/enx_vdma_demo.c
-
 LOOP_BIN	= demo/enx_vdma_loop
 LOOP_SRC	= demo/enx_vdma_loop.c
 
-DEMOV_BIN	= demo/Demo_vdma
-DEMOV_SRC	= demo/Demo_vdma.c
-DEMOV_HDR	= demo/Demo_vdma.h
+DEMO_BIN	= demo/demo_vdma/demo_vdma
+DEMO_SRC	= demo/demo_vdma/demo_vdma.c demo/demo_vdma/demo_vdma_util.c demo/demo_vdma/demo_vdma_pipeline.c demo/demo_vdma/demo_vdma_roundtrip.c demo/demo_vdma/demo_vdma_stress.c
+DEMO_OBJS	= demo/demo_vdma/demo_vdma.o demo/demo_vdma/demo_vdma_util.o demo/demo_vdma/demo_vdma_pipeline.o demo/demo_vdma/demo_vdma_roundtrip.o demo/demo_vdma/demo_vdma_stress.o
+DEMO_HDR	= demo/demo_vdma/demo_vdma.h demo/demo_vdma/demo_vdma_util.h
+DEMO_FLAGS = -lm
 
 FONT_BIN	= font_test/enx_vdma_font
 FONT_SRC	= font_test/enx_vdma_font.c
 
-.PHONY: all so static demo loop demov tools install clean help
+.PHONY: all so static demo loop font tools install clean help
 
-all: $(LIB_SHARED) $(LIB_STATIC)
+all: $(LIB_SHARED) $(LIB_STATIC) tools
 
 so: $(LIB_SHARED)
 
 static: $(LIB_STATIC)
 
-demo: $(DEMO_BIN)
-
 loop: $(LOOP_BIN)
 
-demov: $(DEMOV_BIN)
+demo: $(DEMO_BIN)
 
 font: $(FONT_BIN)
 
-tools: $(DEMO_BIN) $(LOOP_BIN) $(DEMOV_BIN) $(FONT_BIN)
+tools: $(LOOP_BIN) $(DEMO_BIN) $(FONT_BIN)
 
 # ─────────────────────────────────────────────────────────────────────────
 # Build rules
@@ -91,17 +92,13 @@ $(LIB_SHARED): $(LIB_OBJ_PIC)
 $(LIB_STATIC): $(LIB_OBJ)
 	$(AR) rcs $@ $^
 
-# Demo / test binary — links statically against $(LIB_STATIC)
-$(DEMO_BIN): $(DEMO_SRC) $(LIB_HDR) $(LIB_STATIC)
-	$(CC) $(CFLAGS) $(INCLUDES) $(DEMO_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS)
-
 # Loop benchmark / stress binary — links statically against $(LIB_STATIC)
 $(LOOP_BIN): $(LOOP_SRC) $(LIB_HDR) $(LIB_STATIC)
 	$(CC) $(CFLAGS) $(INCLUDES) $(LOOP_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS)
 
 # Interactive Scaler / Font / JPEG demo — links statically against $(LIB_STATIC)
-$(DEMOV_BIN): $(DEMOV_SRC) $(DEMOV_HDR) $(LIB_HDR) $(LIB_STATIC)
-	$(CC) $(CFLAGS) $(INCLUDES) $(DEMOV_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS)
+$(DEMO_BIN): $(DEMO_SRC) $(DEMO_HDR) $(LIB_HDR) $(LIB_STATIC)
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEMO_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS) $(DEMO_FLAGS)
 
 # Font test binary — links statically against $(LIB_STATIC) + FreeType
 $(FONT_BIN): $(FONT_SRC) $(LIB_HDR) $(LIB_STATIC)
@@ -115,11 +112,15 @@ install: all
 	install -d $(DESTDIR)$(INCDIR)
 	install -m 0644 $(LIB_HDR) $(DESTDIR)$(INCDIR)/
 	install -d $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(BINDIR)
 	install -m 0755 $(LIB_SHARED) $(DESTDIR)$(LIBDIR)/
 	install -m 0644 $(LIB_STATIC) $(DESTDIR)$(LIBDIR)/
+	install -m 0755 $(DEMO_BIN) $(DESTDIR)$(BINDIR)/
+	install -m 0755 $(LOOP_BIN) $(DESTDIR)$(BINDIR)/
+	install -m 0755 $(FONT_BIN) $(DESTDIR)$(BINDIR)/
 
 clean:
-	rm -f $(LIB_SHARED) $(LIB_STATIC) $(LIB_OBJ) $(LIB_OBJ_PIC) $(DEMO_BIN) $(LOOP_BIN) $(DEMOV_BIN) $(FONT_BIN)
+	rm -f $(LIB_SHARED) $(LIB_STATIC) $(LIB_OBJ) $(LIB_OBJ_PIC) $(LOOP_BIN) $(DEMO_BIN) $(DEMO_OBJS) $(FONT_BIN)
 
 help:
 	@echo "userapp/lib build targets:"
@@ -128,9 +129,8 @@ help:
 	@echo "  static           Build $(LIB_STATIC)"
 	@echo "  demo             Build $(DEMO_BIN) (verification / unit test)"
 	@echo "  loop             Build $(LOOP_BIN) (submit-loop benchmark)"
-	@echo "  demov            Build $(DEMOV_BIN) (interactive Scaler/Font/JPEG demo)"
 	@echo "  font             Build $(FONT_BIN) (font test)"
-	@echo "  tools            Build demo + loop + demov + font"
+	@echo "  tools            Build demo + loop + font"
 	@echo "  install          Install to \$$PREFIX (= $(PREFIX))"
 	@echo "  clean            Remove all build artifacts"
 	@echo

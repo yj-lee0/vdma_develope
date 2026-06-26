@@ -58,8 +58,8 @@ EXPORT(42)        → anon_inode_getfd("[vdma_buf]")
 submit(src=buf_A.id)                                      submit(src=buf_B.id)
                        ↓ kernel side ↓
         ┌─────────────────────────────────────────────────┐
-        │ struct enx_vdma_backing                          │
-        │  cmm = ecmm region                               │
+        │ struct enx_vdma_backing                         │
+        │  cmm = ecmm region                              │
         │  kref = sum(buf 측 ref + anon_fd 측 ref)         │
         └───────────┬─────────────┬───────────────────────┘
                     │             │

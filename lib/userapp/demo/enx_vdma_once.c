@@ -22,7 +22,7 @@
 /* enx_vdma.h 가 __u32 / __u64 같은 kernel 타입을 typedef 하므로 먼저 include 필요 */
 #include <linux/types.h>
 
-#include "../enx_vdma.h"
+#include "../../enx_vdma.h"
 
 #include <errno.h>
 #include <getopt.h>

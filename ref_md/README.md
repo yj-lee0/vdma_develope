@@ -51,12 +51,14 @@ skeleton/
 │   ├── enx-vdma-uapi.h              (공통 ioctl, struct, 플래그)
 │   ├── en683-font-uapi.h            (font submit_args)
 │   ├── en683-dz-uapi.h              (scaler submit_args)
+│   ├── en683-npu-uapi.h             (npu submit_args)
 │   └── en683-jpeg-uapi.h            (jpegenc/jpegdec submit_args)
 │
 ├── font-drv/                        ← Font driver .ko
 ├── dz-drv/                          ← Scaler (Digital Zoom) driver .ko
 ├── jpegenc-drv/                     ← JPEG Encoder driver .ko
 ├── jpegdec-drv/                     ← JPEG Decoder driver .ko
+├── npu-drv/                         ← npu driver .ko
 │
 ├── userapp/                         ← 사용자 영역
 │   ├── lib/                         ← 통합 라이브러리
@@ -66,7 +68,8 @@ skeleton/
 │   ├── font/                        ← Font 예제 / 데모
 │   ├── scaler/                      ← Scaler 예제 / 데모
 │   ├── jpegenc/                     ← JPEG ENC 예제 / 데모
-│   └── jpegdec/                     ← JPEG DEC 예제 / 데모
+│   ├── jpegdec/                     ← JPEG DEC 예제 / 데모
+│   └── npu/            	         ← NPU 예제 / 데모
 │
 └── ref_md/                          ← 문서
     ├── README.md                    (이 파일)
@@ -88,6 +91,7 @@ skeleton/
 | [dz-drv/en683-dz.c](../dz-drv/en683-dz.c) | kernel driver | scaler HW 시퀀스 + core 콜백 |
 | [jpegenc-drv/en683-jpegenc.c](../jpegenc-drv/en683-jpegenc.c) | kernel driver | JPEG enc HW 시퀀스 + core 콜백 |
 | [jpegdec-drv/en683-jpegdec.c](../jpegdec-drv/en683-jpegdec.c) | kernel driver | JPEG dec HW 시퀀스 + core 콜백 |
+| [npu-drv/en683-npu.c](../npu-drv/en683-npu.c) | kernel driver | NPU HW 시퀀스 + core 콜백 |
 | [userapp/lib/enx_vdma.c](../userapp/lib/enx_vdma.c) | user lib | 4 driver 통합 API 구현 |
 | [userapp/lib/enx_vdma.h](../userapp/lib/enx_vdma.h) | user lib | 공개 API 헤더 |
 | [userapp/lib/vdma_error.h](../userapp/lib/vdma_error.h) | user | 사용자 측 에러 코드 |
@@ -151,6 +155,7 @@ VDMAIOSET_DZ_SUBMIT         /* dz    : 1 src + 1 dst, scale/crop/flip/fmt */
 VDMAIOSET_JPEG_ENC_SUBMIT   /* jpegenc : YUV → JPEG */
 VDMAIOSET_JPEG_DEC_SUBMIT   /* jpegdec : JPEG → YUV */
 VDMAIOSET_JPEG_DISCARD      /* jpeg : 진행 중 op 폐기 */
+VDMAIOSET_NPU_SUBMIT       /* npu  : 1 src + 1 dst */
 ```
 
 상세는 [CORE.md](CORE.md), [include-uapi/](../include-uapi/) 헤더 참고.

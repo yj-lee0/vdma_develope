@@ -30,7 +30,7 @@
 
 #include <linux/types.h>
 
-#include "../enx_vdma.h"
+#include "../../enx_vdma.h"
 
 #include <errno.h>
 #include <getopt.h>

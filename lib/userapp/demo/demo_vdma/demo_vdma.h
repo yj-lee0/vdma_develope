@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <linux/types.h>
 
-#include "../../enx_vdma.h"
+#include "../../../enx_vdma.h"
 
 #define ENX_SUCCESS				0
 #define ENX_FAIL				1

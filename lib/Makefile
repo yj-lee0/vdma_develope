@@ -20,7 +20,7 @@ CFLAGS		?= -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter
 LDFLAGS		?= -lpthread
 
 # UAPI 헤더: skeleton/include-uapi/
-INCLUDES	= -I../../include-uapi
+INCLUDES	= -I../driver/include-uapi
 
 # FreeType — used only by the font_test binary. Built locally by
 # font_test/build_freetype.sh, which installs into $(FREETYPE_DIR).
@@ -30,11 +30,9 @@ INCLUDES	= -I../../include-uapi
 # carries its own DT_NEEDED for any deps (e.g. zlib), so we don't list them
 # here. To static-link instead, override e.g.:
 #   make font FT_LIBS="-L$(FREETYPE_DIR)/lib -l:libfreetype.a -lz"
-FREETYPE_DIR	?= font_test/libs
+FREETYPE_DIR	?= userapp/font_test/libs
 FT_CFLAGS	?= -I$(FREETYPE_DIR)/include/freetype2
 FT_LIBS		?= -L$(FREETYPE_DIR)/lib -lfreetype
-
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # Targets
@@ -48,17 +46,21 @@ LIB_OBJ		= enx_vdma.o
 LIB_OBJ_PIC	= enx_vdma.pic.o
 LIB_HDR		= enx_vdma.h
 
-LOOP_BIN	= demo/enx_vdma_loop
-LOOP_SRC	= demo/enx_vdma_loop.c
+ONCE_BIN	= userapp/demo/enx_vdma_once
+ONCE_SRC	= userapp/demo/enx_vdma_once.c
 
-DEMO_BIN	= demo/demo_vdma/demo_vdma
-DEMO_SRC	= demo/demo_vdma/demo_vdma.c demo/demo_vdma/demo_vdma_util.c demo/demo_vdma/demo_vdma_pipeline.c demo/demo_vdma/demo_vdma_roundtrip.c demo/demo_vdma/demo_vdma_stress.c
-DEMO_OBJS	= demo/demo_vdma/demo_vdma.o demo/demo_vdma/demo_vdma_util.o demo/demo_vdma/demo_vdma_pipeline.o demo/demo_vdma/demo_vdma_roundtrip.o demo/demo_vdma/demo_vdma_stress.o
-DEMO_HDR	= demo/demo_vdma/demo_vdma.h demo/demo_vdma/demo_vdma_util.h
+LOOP_BIN	= userapp/demo/enx_vdma_loop
+LOOP_SRC	= userapp/demo/enx_vdma_loop.c
+
+DEMO_DIR	= userapp/demo/demo_vdma
+DEMO_BIN	= $(DEMO_DIR)/demo_vdma
+DEMO_SRC	= $(DEMO_DIR)/demo_vdma.c $(DEMO_DIR)/demo_vdma_util.c $(DEMO_DIR)/demo_vdma_pipeline.c $(DEMO_DIR)/demo_vdma_roundtrip.c $(DEMO_DIR)/demo_vdma_stress.c
+DEMO_OBJS	= $(DEMO_DIR)/demo_vdma.o $(DEMO_DIR)/demo_vdma_util.o $(DEMO_DIR)/demo_vdma_pipeline.o $(DEMO_DIR)/demo_vdma_roundtrip.o $(DEMO_DIR)/demo_vdma_stress.o
+DEMO_HDR	= $(DEMO_DIR)/demo_vdma.h $(DEMO_DIR)/demo_vdma_util.h
 DEMO_FLAGS = -lm
 
-FONT_BIN	= font_test/enx_vdma_font
-FONT_SRC	= font_test/enx_vdma_font.c
+FONT_BIN	= userapp/font_test/enx_vdma_font
+FONT_SRC	= userapp/font_test/enx_vdma_font.c
 
 .PHONY: all so static demo loop font tools install clean help
 
@@ -73,6 +75,8 @@ loop: $(LOOP_BIN)
 demo: $(DEMO_BIN)
 
 font: $(FONT_BIN)
+
+once: $(ONCE_BIN)
 
 tools: $(LOOP_BIN) $(DEMO_BIN) $(FONT_BIN)
 
@@ -104,6 +108,9 @@ $(DEMO_BIN): $(DEMO_SRC) $(DEMO_HDR) $(LIB_HDR) $(LIB_STATIC)
 $(FONT_BIN): $(FONT_SRC) $(LIB_HDR) $(LIB_STATIC)
 	$(CC) $(CFLAGS) $(INCLUDES) $(FT_CFLAGS) $(FONT_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS) $(FT_LIBS)
 
+$(ONCE_BIN): $(ONCE_SRC) $(LIB_HDR) $(LIB_STATIC)
+	$(CC) $(CFLAGS) $(INCLUDES) $(ONCE_SRC) $(LIB_STATIC) -o $@ $(LDFLAGS)
+
 # ─────────────────────────────────────────────────────────────────────────
 # Install / clean
 # ─────────────────────────────────────────────────────────────────────────
@@ -120,7 +127,7 @@ install: all
 	install -m 0755 $(FONT_BIN) $(DESTDIR)$(BINDIR)/
 
 clean:
-	rm -f $(LIB_SHARED) $(LIB_STATIC) $(LIB_OBJ) $(LIB_OBJ_PIC) $(LOOP_BIN) $(DEMO_BIN) $(DEMO_OBJS) $(FONT_BIN)
+	rm -f $(LIB_SHARED) $(LIB_STATIC) $(LIB_OBJ) $(LIB_OBJ_PIC) $(LOOP_BIN) $(DEMO_BIN) $(DEMO_OBJS) $(FONT_BIN) $(ONCE_BIN)
 
 help:
 	@echo "userapp/lib build targets:"

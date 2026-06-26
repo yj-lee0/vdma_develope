@@ -42,10 +42,10 @@ digraph EN683_VDMA {
 		color="#2e7d32";
 
 		app_font	[label="font app",		shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
-		app_scaler0	[label="scaler app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
-		app_scaler1	[label="scaler app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_scaler	[label="scaler app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
 		app_jenc	[label="jpegenc app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
 		app_jdec	[label="jpegdec app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
+		app_npu		[label="npu app",	shape=box, fillcolor="#ffffff", width=1.2, fixedsize=true];
 
 		lib [
 			label=<<BR/><B>libenxmedialink.so / libenxmedialink.a</B><BR ALIGN="CENTER"/>
@@ -61,13 +61,13 @@ digraph EN683_VDMA {
 
 
 		app_font	-> lib;
-		app_scaler0	-> lib;
-		app_scaler1	-> lib;
+		app_scaler	-> lib;
 		app_jenc	-> lib;
 		app_jdec	-> lib;
+		app_npu		-> lib;
 
 		/* Apps on the same rank above lib */
-		{ rank=same; app_font; app_scaler0; app_scaler1; app_jenc; app_jdec; }
+		{ rank=same; app_font; app_scaler; app_jenc; app_jdec; app_npu; }
 	}
 
 	/* ============================================================
@@ -92,22 +92,22 @@ digraph EN683_VDMA {
 			node [shape=box, style="filled,rounded", fillcolor="#ffffff"];
 
 			dma_font [
-				label = "enx_vdma-font.ko\n/dev/enx_vdma_font"
+				label = "enx_vdma_font.ko\n/dev/enx_vdma_font"
 			];
 			dma_dz0 [
-				label = "enx_vdma-dz.ko ch0\n/dev/enx_vdma_dz0"
-			];
-			dma_dz1 [
-				label = "enx_vdma-dz.ko ch1\n/dev/enx_vdma_dz1"
+				label = "enx_vdma_dz.ko ch0\n/dev/enx_vdma_dz0"
 			];
 			dma_jenc [
-				label = "enx_vdma-jenc.ko\n/dev/enx_vdma_jenc"
+				label = "enx_vdma_jenc.ko\n/dev/enx_vdma_jenc"
 			];
 			dma_jdec [
-				label = "enx_vdma-jdec.ko\n/dev/enx_vdma_jdec"
+				label = "enx_vdma_jdec.ko\n/dev/enx_vdma_jdec"
+			];
+			dma_npu [
+				label = "enx_vdma_npu.ko\n/dev/enx_vdma_npu"
 			];
 
-			{ rank=same; dma_font; dma_dz0; dma_dz1; dma_jenc; dma_jdec; }
+			{ rank=same; dma_font; dma_dz0; dma_jenc; dma_jdec; dma_npu; }
 		}
 
 
@@ -165,7 +165,7 @@ digraph EN683_VDMA {
 		}
 
 		/* device와 core를 같은 위치 (한 줄 5+1 = 6 노드) */
-		{ rank=same; dma_font; dma_dz0; dma_dz1; dma_jenc; dma_jdec; core; }
+		{ rank=same; dma_font; dma_dz0; dma_jenc; dma_jdec; dma_npu; core; }
 
 		core:ops -> dma_font [
 			style=dashed,
@@ -188,11 +188,11 @@ digraph EN683_VDMA {
 
 		hw_font [label="FONT engine",	shape=cylinder, fillcolor="#eeeeee"];
 		hw_dz0  [label="DZ ch0",		shape=cylinder, fillcolor="#eeeeee"];
-		hw_dz1  [label="DZ ch1",		shape=cylinder, fillcolor="#eeeeee"];
 		hw_jenc [label="JPEG enc",		shape=cylinder, fillcolor="#eeeeee"];
 		hw_jdec [label="JPEG dec",		shape=cylinder, fillcolor="#eeeeee"];
+		hw_npu	[label="NPU engine",	shape=cylinder, fillcolor="#eeeeee"];
 
-		{ rank=same; hw_font; hw_dz0; hw_dz1; hw_jenc; hw_jdec; }
+		{ rank=same; hw_font; hw_dz0; hw_jenc; hw_jdec; hw_npu; }
 	}
 
 	/* ============================================================
@@ -201,10 +201,10 @@ digraph EN683_VDMA {
 
 	/* lib → device : 가시 edge. constraint=true (기본) 로 vertical stacking
 	* 강제. lhead=cluster_device 로 device cluster 자체에 attach.
-	* dma_dz1 은 device cluster 의 declaration 상 중앙 (column 3).
+	* dma_jenc 은 device cluster 의 declaration 상 중앙 (column 3).
 	* apps 는 width=1.2 fixedsize → 균일 간격 → 중앙 app (app_jenc) 와
-	* dma_dz1 가 같은 x 위치로 정렬됨 → lib (apps median 위치) = lib 중앙. */
-	lib -> dma_dz1 [
+	* dma_jenc 가 같은 x 위치로 정렬됨 → lib (apps median 위치) = lib 중앙. */
+	lib -> dma_jenc [
 		color="#1976d2", penwidth=2.0,
 		label="ioctl / mmap\nvia /dev",
 		lhead=cluster_device,
@@ -215,8 +215,7 @@ digraph EN683_VDMA {
 	/* device → HW : column-aligned, 1:1 (vertical, no crossing) */
 	dma_font -> hw_font [color="#666666"];
 	dma_dz0  -> hw_dz0  [color="#666666"];
-	dma_dz1  -> hw_dz1  [color="#666666"];
 	dma_jenc -> hw_jenc [color="#666666"];
 	dma_jdec -> hw_jdec [color="#666666"];
-
+	dma_npu  -> hw_npu  [color="#666666"];
 }

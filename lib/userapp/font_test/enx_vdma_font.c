@@ -31,7 +31,7 @@
 #include FT_STROKER_H
 #include FT_OUTLINE_H
 
-#include "../enx_vdma.h"
+#include "../../enx_vdma.h"
 
 /*******************************************************************************
  *
